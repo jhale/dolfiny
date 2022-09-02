@@ -2,11 +2,11 @@ import logging
 
 from mpi4py import MPI
 import numpy
-from dolfinx.cpp.mesh import CellType
-from dolfinx import cpp
+from dolfinx.mesh import CellType
 from dolfinx.mesh import create_mesh, meshtags_from_entities, meshtags
-from dolfinx.io import ufl_mesh_from_gmsh
-from dolfinx.cpp.io import distribute_entity_data
+from dolfinx.io.gmshio import ufl_mesh, cell_perm_array
+from dolfinx.io import distribute_entity_data
+from dolfinx.cpp.graph import AdjacencyList_int32
 
 
 def gmsh_to_dolfin(gmsh_model, tdim: int, comm=MPI.COMM_WORLD, prune_y=False, prune_z=False):
@@ -166,7 +166,7 @@ def gmsh_to_dolfin(gmsh_model, tdim: int, comm=MPI.COMM_WORLD, prune_y=False, pr
         except KeyError:
             raise RuntimeError(f"Cannot determine dolfin cell type for Gmsh cell type \"{cellname:s}\".")
 
-        perm = cpp.io.perm_gmsh(dolfin_cell_type, num_nodes)
+        perm = cell_perm_array(dolfin_cell_type, num_nodes)
         logger.info(f"Mesh will be permuted with {perm}")
         cells = cells[cellname][:, perm]
 
@@ -179,7 +179,7 @@ def gmsh_to_dolfin(gmsh_model, tdim: int, comm=MPI.COMM_WORLD, prune_y=False, pr
         cells = numpy.empty((0, cells_shape[1]))
         points = numpy.empty((0, pts_shape[1]))
 
-    mesh = create_mesh(comm, cells, points, ufl_mesh_from_gmsh(celltype, pts_shape[1]))
+    mesh = create_mesh(comm, cells, points, ufl_mesh(celltype, pts_shape[1]))
     mts = {}
 
     # Get physical groups (dimension, tag)
@@ -219,7 +219,7 @@ def gmsh_to_dolfin(gmsh_model, tdim: int, comm=MPI.COMM_WORLD, prune_y=False, pr
 
             # Fetch the permutation needed for physical group
             pgdolfin_cell_type, pgorder = gmsh_dolfin[pgcellname]
-            pgpermutation = cpp.io.perm_gmsh(pgdolfin_cell_type, pgnum_nodes)
+            pgpermutation = cell_perm_array(pgdolfin_cell_type, pgnum_nodes)
 
             _mt_cells[:, :] = _mt_cells[:, pgpermutation]
 
@@ -236,7 +236,7 @@ def gmsh_to_dolfin(gmsh_model, tdim: int, comm=MPI.COMM_WORLD, prune_y=False, pr
 
         mesh.topology.create_connectivity(pgdim, 0)
 
-        mt = meshtags_from_entities(mesh, pgdim, cpp.graph.AdjacencyList_int32(
+        mt = meshtags_from_entities(mesh, pgdim, AdjacencyList_int32(
             local_entities), numpy.int32(local_values))
         mt.name = pg_tag_name
 
